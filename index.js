@@ -29,7 +29,6 @@ async function run() {
 
     // TOKEN AUTH API
     app.post("/jwt", async (req, res) => {
-      console.log("hit jwt api");
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN, {
         expiresIn: "1h",
@@ -43,6 +42,7 @@ async function run() {
         return res.status(401).send({ message: "unauthorized access" });
       }
       const token = req.headers.authorization.split(" ")[1];
+      console.log(token);
       jwt.verify(token, process.env.ACCESS_TOKEN, (err, decoded) => {
         if (err) {
           return res.status(401).send({ message: "unauthorized access" });
@@ -51,6 +51,38 @@ async function run() {
         next();
       });
     };
+
+    // VERIFY ADMIN MIDDLEWARE
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    // ++USER POST API++
+    app.post("/users", async (req, res) => {
+      const userInfo = req.body;
+      const result = await usersCollection.insertOne(userInfo);
+      res.send(result);
+    });
+
+    // ++USER GET API++
+    // ++USER SINGLE GET API++
+    app.get("/users/data/isAdmin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "unauthorized" });
+      }
+      const query = { email: email };
+      const result = await usersCollection.findOne(query);
+      res.send({ isAdmin: result.role === "admin" ? true : false });
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
