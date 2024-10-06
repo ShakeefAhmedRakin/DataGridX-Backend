@@ -20,13 +20,13 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
 async function run() {
   try {
     // LOADING COLLECTIONS
     const usersCollection = client
       .db("DataGridX")
       .collection("usersCollection");
-
     const tablesCollection = client
       .db("DataGridX")
       .collection("tablesCollection");
@@ -46,7 +46,6 @@ async function run() {
         return res.status(401).send({ message: "unauthorized access" });
       }
       const token = req.headers.authorization.split(" ")[1];
-      console.log(token);
       jwt.verify(token, process.env.ACCESS_TOKEN, (err, decoded) => {
         if (err) {
           return res.status(401).send({ message: "unauthorized access" });
@@ -93,11 +92,13 @@ async function run() {
         const newTable = req.body;
         const result = await tablesCollection.insertOne({
           ...newTable,
-          rows: [],
+          data: [
+            [{ cellValue: "HEADING" }, { cellValue: "HEADING" }],
+            [{ cellValue: "" }, { cellValue: "" }],
+          ], // Initialize with an 2x2 table matrix
         });
 
-        // `insertedId` is now the standard way to get the inserted document's ID
-        res.status(201).send({ _id: result.insertedId, ...newTable, rows: [] });
+        res.status(201).send({ _id: result.insertedId, ...newTable, data: [] });
       } catch (error) {
         console.error("Error creating table:", error);
         res.status(500).send("Failed to create table");
@@ -140,6 +141,209 @@ async function run() {
         res.status(500).send("Failed to fetch table");
       }
     });
+
+    // ADD ROW API
+    app.post(
+      "/users/:email/tables/:id/addRow",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const id = req.params.id;
+
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "unauthorized" });
+        }
+
+        try {
+          const query = { email: email, _id: new ObjectId(id) };
+          const table = await tablesCollection.findOne(query);
+
+          if (!table) {
+            return res.status(404).send({ message: "Table not found" });
+          }
+
+          const newRow = table.data[0].map(() => ({ cellValue: "" }));
+          table.data.push(newRow);
+
+          const updateResult = await tablesCollection.updateOne(query, {
+            $set: { data: table.data },
+          });
+
+          res.send(updateResult);
+        } catch (error) {
+          console.error("Error adding row:", error);
+          res.status(500).send("Failed to add row");
+        }
+      }
+    );
+
+    // ADD COLUMN API
+    app.post(
+      "/users/:email/tables/:id/addColumn",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const id = req.params.id;
+
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "unauthorized" });
+        }
+
+        try {
+          const query = { email: email, _id: new ObjectId(id) };
+          const table = await tablesCollection.findOne(query);
+
+          if (!table) {
+            return res.status(404).send({ message: "Table not found" });
+          }
+
+          table.data.forEach((row) => row.push({ cellValue: "" }));
+
+          const updateResult = await tablesCollection.updateOne(query, {
+            $set: { data: table.data },
+          });
+
+          res.send(updateResult);
+        } catch (error) {
+          console.error("Error adding column:", error);
+          res.status(500).send("Failed to add column");
+        }
+      }
+    );
+
+    // DELETE ROW API
+    app.delete(
+      "/users/:email/tables/:id/deleteRow/:rowIndex",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const id = req.params.id;
+        const rowIndex = parseInt(req.params.rowIndex);
+
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "unauthorized" });
+        }
+
+        try {
+          const query = { email: email, _id: new ObjectId(id) };
+          const table = await tablesCollection.findOne(query);
+
+          if (!table) {
+            return res.status(404).send({ message: "Table not found" });
+          }
+
+          if (rowIndex < 0 || rowIndex >= table.data.length) {
+            return res.status(400).send({ message: "Invalid row index" });
+          }
+
+          if (table.data.length <= 2) {
+            return res
+              .status(400)
+              .send({ message: "Cannot have less than 2 rows" });
+          }
+
+          table.data.splice(rowIndex, 1);
+
+          const updateResult = await tablesCollection.updateOne(query, {
+            $set: { data: table.data },
+          });
+
+          res.send(updateResult);
+        } catch (error) {
+          console.error("Error deleting row:", error);
+          res.status(500).send("Failed to delete row");
+        }
+      }
+    );
+
+    // DELETE COLUMN API
+
+    app.delete(
+      "/users/:email/tables/:id/deleteColumn/:colIndex",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const id = req.params.id;
+        const colIndex = parseInt(req.params.colIndex);
+
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "unauthorized" });
+        }
+
+        try {
+          const query = { email: email, _id: new ObjectId(id) };
+          const table = await tablesCollection.findOne(query);
+
+          if (!table) {
+            return res.status(404).send({ message: "Table not found" });
+          }
+
+          if (colIndex < 0 || colIndex >= table.data[0].length) {
+            return res.status(400).send({ message: "Invalid column index" });
+          }
+
+          if (table.data[0].length <= 1) {
+            return res
+              .status(400)
+              .send({ message: "Cannot have less than 1 column" });
+          }
+
+          table.data.forEach((row) => row.splice(colIndex, 1));
+
+          const updateResult = await tablesCollection.updateOne(query, {
+            $set: { data: table.data },
+          });
+
+          res.send(updateResult);
+        } catch (error) {
+          console.error("Error deleting column:", error);
+          res.status(500).send("Failed to delete column");
+        }
+      }
+    );
+
+    // EDIT CELL API
+    app.put(
+      "/users/:email/tables/:id/editCell",
+      verifyToken,
+      async (req, res) => {
+        const email = req.params.email;
+        const id = req.params.id;
+        const { rowIndex, colIndex, newValue } = req.body;
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "unauthorized" });
+        }
+
+        try {
+          const query = { email: email, _id: new ObjectId(id) };
+          const table = await tablesCollection.findOne(query);
+
+          if (!table) {
+            return res.status(404).send({ message: "Table not found" });
+          }
+
+          if (
+            rowIndex < 0 ||
+            rowIndex >= table.data.length ||
+            colIndex < 0 ||
+            colIndex >= table.data[0].length
+          ) {
+            return res.status(400).send({ message: "Invalid cell index" });
+          }
+
+          table.data[rowIndex][colIndex].cellValue = newValue;
+
+          const updateResult = await tablesCollection.updateOne(query, {
+            $set: { data: table.data },
+          });
+
+          res.send(updateResult);
+        } catch (error) {
+          console.error("Error editing cell:", error);
+          res.status(500).send("Failed to edit cell");
+        }
+      }
+    );
 
     await client.db("admin").command({ ping: 1 });
     console.log(
