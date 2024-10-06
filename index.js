@@ -27,6 +27,10 @@ async function run() {
       .db("DataGridX")
       .collection("usersCollection");
 
+    const tablesCollection = client
+      .db("DataGridX")
+      .collection("tablesCollection");
+
     // TOKEN AUTH API
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -71,7 +75,6 @@ async function run() {
       res.send(result);
     });
 
-    // ++USER GET API++
     // ++USER SINGLE GET API++
     app.get("/users/data/isAdmin/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -82,6 +85,60 @@ async function run() {
       const query = { email: email };
       const result = await usersCollection.findOne(query);
       res.send({ isAdmin: result.role === "admin" ? true : false });
+    });
+
+    // TABLE CREATION API
+    app.post("/users/tables", verifyToken, async (req, res) => {
+      try {
+        const newTable = req.body;
+        const result = await tablesCollection.insertOne({
+          ...newTable,
+          rows: [],
+        });
+
+        // `insertedId` is now the standard way to get the inserted document's ID
+        res.status(201).send({ _id: result.insertedId, ...newTable, rows: [] });
+      } catch (error) {
+        console.error("Error creating table:", error);
+        res.status(500).send("Failed to create table");
+      }
+    });
+
+    // ++USER TABLE GET API++
+    app.get("/users/:email/tables", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "unauthorized" });
+      }
+
+      const query = { email: email };
+      const tables = await tablesCollection.find(query).toArray();
+      res.send(tables);
+    });
+
+    // ++USER SINGLE TABLE GET API++
+    app.get("/users/:email/tables/:id", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const id = req.params.id;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "unauthorized" });
+      }
+
+      try {
+        const query = { email: email, _id: new ObjectId(id) };
+        const table = await tablesCollection.findOne(query);
+
+        if (!table) {
+          return res.status(404).send({ message: "Table not found" });
+        }
+
+        res.send(table);
+      } catch (error) {
+        console.error("Error fetching table:", error);
+        res.status(500).send("Failed to fetch table");
+      }
     });
 
     await client.db("admin").command({ ping: 1 });
